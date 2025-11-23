@@ -10,7 +10,7 @@ import {
 import useChatStore from '../store/chatStore'; // Adjust path if needed
 
 const Sidebar = () => {
-  const { chats, activeChatId, setActiveChat, createChat } = useChatStore();
+  const { chats, activeChatId, createChat, fetchChatList, selectChat } = useChatStore();
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -32,6 +32,10 @@ const Sidebar = () => {
     if (isModalOpen) window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isModalOpen]);
+
+  useEffect(() => {
+    fetchChatList();
+  }, [fetchChatList]);
 
   const openModal = () => {
     setIsModalOpen(true);
@@ -85,16 +89,16 @@ const Sidebar = () => {
           {chats.map((chat) => (
             <button
               key={chat.id}
-              onClick={() => setActiveChat(chat.id)}
+              onClick={() => selectChat(chat.id)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 group border ${
                 activeChatId === chat.id
                   ? 'bg-slate-800/80 border-slate-700 text-white shadow-md'
                   : 'bg-transparent border-transparent text-slate-400 hover:bg-slate-900 hover:text-slate-200'
               }`}
             >
-              <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeChatId === chat.id ? 'text-blue-400' : 'text-slate-600'}`} />
+              <MessageSquare className={`w-4 h-4 shrink-0 ${activeChatId === chat.id ? 'text-blue-400' : 'text-slate-600'}`} />
               <div className="flex-1 min-w-0">
-                <span className="block truncate font-medium text-sm">{chat.name}</span>
+                <span className="block truncate font-medium text-sm">{chat.title}</span>
                 <span className="block truncate text-[10px] text-slate-600 font-mono mt-0.5 opacity-80">ID: {chat.id}</span>
               </div>
             </button>

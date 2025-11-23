@@ -9,6 +9,8 @@ class MessageSerializer(serializers.ModelSerializer):
 
 
 class ConversationSerializer(serializers.ModelSerializer):
+    # Nested serializer to serialize the messages related to the conversation
+    messages = MessageSerializer(many=True, read_only=True, source='message_set')
     class Meta:
         model = Conversation
         fields = ["id", "title", "created_at", "messages"]

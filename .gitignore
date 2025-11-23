@@ -24,6 +24,8 @@ dist-ssr
 *.sw?
 
 
+
+# Django
 *.log
 *.pot
 *.pyc
@@ -33,6 +35,11 @@ db.sqlite3
 media/ # User-uploaded files
 env/
 .env
+# ignoring the files uploaded
+media/
+# ignoring vector DB
+chroma_langchain_db/
+chroma.sqlite3
 
 
 details.txt

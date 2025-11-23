@@ -1,64 +1,103 @@
+import os
 from uuid import uuid4
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings, HuggingFaceInferenceAPIEmbeddings
-from langchain_community.vectorstores import Chroma
-# from django.conf import settings
-import os 
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_chroma import Chroma 
 
-HUGGINGFACEHUB_API_TOKEN = os.getenv('HUGGINGFACEHUB_API_TOKEN')
+# now the chroma store stored in the same folder as the ai/
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))   # ai/ folder
+PERSIST_DIR = os.path.join(BASE_DIR, "chroma_langchain_db")
 
-# 1. Embedding model
+# 1. Loading env variable - django loads it automatically
 
-# # a. model locally present
-# embedding_model = HuggingFaceEmbeddings(
-#     model_name="Qwen/Qwen3-Embedding-0.6B"
-# )
-
-# b. using inference api
-embedding_model = HuggingFaceInferenceAPIEmbeddings(
-    api_key=HUGGINGFACEHUB_API_TOKEN,
-    model_name="Qwen/Qwen3-Embedding-0.6B"   # or any HF embedding model
+# 2. Embedding model
+embedding_model = HuggingFaceEndpointEmbeddings(
+    # model="Qwen/Qwen2.5-Coder-32B-Instruct", # might not have inference API so using sentence transformer
+    model="sentence-transformers/all-MiniLM-L6-v2",
+    task='feature-extraction'
 )
 
-# 2. Persistent Chroma vector store
+# 3. Persistent Chroma vector store
 vector_store = Chroma(
     collection_name="example_collection",
     embedding_function=embedding_model,
-    persist_directory="./chroma_langchain_db"
+    persist_directory=PERSIST_DIR
 )
 
 # --- INGESTION ---
 def ingest_from_document(file_path):
-    loader = PyPDFLoader(file_path)
-    docs = loader.load()
+    if not os.path.exists(file_path):
+        return f"Error: File {file_path} does not exist."
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=150,
-        chunk_overlap=20,
-        separators=["\n\n", "\n", " ", ""]
-    )
+    try:
+        print(f"Loading {file_path}...")
+        loader = PyPDFLoader(file_path)
+        docs = loader.load()
 
-    chunks = splitter.split_documents(docs)
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=500,
+            chunk_overlap=50,
+            separators=["\n\n", "\n", " ", ""]
+        )
 
-    # Set metadata
-    for chunk in chunks:
-        chunk.metadata["source"] = file_path
+        chunks = splitter.split_documents(docs)
 
-    # Add with unique IDs
-    vector_store.add_documents(
-        chunks,
-        ids=[str(uuid4()) for _ in chunks]
-    )
+        # Set metadata
+        for chunk in chunks:
+            chunk.metadata["source"] = file_path
 
-    vector_store.persist()
-    return f"Inserted {len(chunks)} chunks from {file_path}"
+        print(f"Adding {len(chunks)} chunks to Vector Store...")
+        
+        # Add with unique IDs
+        vector_store.add_documents(
+            chunks,
+            ids=[str(uuid4()) for _ in chunks]
+        )
+        
+        # vector_store.persist() is NOT needed in newer versions (it is automatic)
+        return f"Successfully inserted {len(chunks)} chunks."
+
+    except Exception as e:
+        return f"Ingestion Error: {str(e)}"
+
 
 
 # --- RETRIEVAL ---
 def retrieve_documents(query, k=3):
-    retriever = vector_store.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": k}
-    )
-    return retriever.invoke(query)
+    try:
+        # Check if collection is empty to prevent errors
+        if vector_store._collection.count() == 0:
+            return []
+
+        retriever = vector_store.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": k}
+        )
+
+        # retrieved relevant docs
+        output = retriever.invoke(query)
+        
+        # storing the page content in list to provide as context
+        results = []
+        for i, doc in enumerate(output):
+            results.append(f"Result {i+1}:\n{doc.page_content}\nSource: {doc.metadata.get('source', 'unknown')}\n")
+        
+        return "\n".join(results)
+
+    except Exception as e:
+        return f"Retrieval Error: {str(e)}"
+
+
+
+# --- MAIN EXECUTION ---
+if __name__ == "__main__":
+    # 1. Ingest a file
+    pdf_path = "example.pdf" 
+    print(ingest_from_document(pdf_path))
+
+    # 2. Retrieve
+    query = "How are you?"
+    print(f"Querying: {query}")
+    print("-" * 30)
+    print(retrieve_documents(query))

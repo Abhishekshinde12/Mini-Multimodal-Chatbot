@@ -14,7 +14,7 @@ import useChatStore from '../store/chatStore';
 
 
 const ChatArea = () => {
-  const { chats, activeChatId, addMessage } = useChatStore();
+  const { chats, activeChatId, sendQuery, uploadFile, isUploading } = useChatStore();
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -23,10 +23,21 @@ const ChatArea = () => {
 
   const activeChat = chats.find((c) => c.id === activeChatId);
 
-  // Auto-scroll to bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeChat?.messages, isTyping]);
+    if (activeChat) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [activeChat?.messages, isTyping, activeChat]);
+
+
+  if (!activeChat) {
+      return (
+        <div className="flex-1 bg-slate-900 flex items-center justify-center text-slate-500">
+           <p>Select a chat to begin</p>
+        </div>
+      );
+  }
+
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -39,21 +50,34 @@ const ChatArea = () => {
     }
   };
 
-  const handleSend = async () => {
+const handleSend = async () => {
     if ((!inputValue.trim() && !selectedImage) || !activeChatId) return;
 
-    // 1. Add User Message
-    addMessage(activeChatId, 'user', inputValue, selectedImage);
-    const tempInput = inputValue; // store for RAG context
+    const currentMessage = inputValue;
+    // Clear input immediately
     setInputValue("");
-    setSelectedImage(null);
-    setIsTyping(true);
+    setSelectedImage(null); 
 
-    // 2. Simulate RAG/LLM Interaction
-    setTimeout(() => {
-      addMessage(activeChatId, 'ai', `I have analyzed your request regarding "${tempInput || 'the image'}" based on the uploaded knowledge base. Here is the relevant information...`);
-      setIsTyping(false);
-    }, 1500);
+    // 1. Handle File Upload if exists
+    const file = fileInputRef.current?.files[0];
+    
+    if (file) {
+       try {
+         await uploadFile(activeChatId, file);
+         // Clear file input
+         if(fileInputRef.current) fileInputRef.current.value = '';
+       } catch (err) {
+         console.error("Upload failed", err);
+         return; // Stop if upload fails
+       }
+    }
+
+    // 2. Send Query
+    const queryText = currentMessage || (file ? "I have uploaded a file. Please analyze it." : "");
+    
+    setIsTyping(true); // Keep local loading state
+    await sendQuery(activeChatId, queryText);
+    setIsTyping(false);
   };
 
   const handleKeyDown = (e) => {
@@ -71,7 +95,7 @@ const ChatArea = () => {
       {/* Top Bar */}
       <div className="h-16 border-b border-slate-800/50 flex items-center justify-between px-6 bg-slate-900/50 backdrop-blur-md z-10">
         <div>
-          <h2 className="text-lg font-bold text-white">{activeChat.name}</h2>
+          <h2 className="text-lg font-bold text-white">{activeChat.title}</h2>
           <p className="text-xs text-slate-500 flex items-center gap-1">
             <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
             RAG Model Active
@@ -96,22 +120,22 @@ const ChatArea = () => {
             </div>
         )}
         
-        {activeChat.messages.map((msg) => (
+        {(activeChat.messages || []).map((msg) => (
           <div
             key={msg.id}
-            className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+            className={`flex gap-4 ${msg.user_type === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
           >
             {/* Avatar */}
             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-              msg.role === 'user' ? 'bg-blue-600' : 'bg-emerald-600'
+              msg.user_type === 'user' ? 'bg-blue-600' : 'bg-emerald-600'
             }`}>
-              {msg.role === 'user' ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-white" />}
+              {msg.user_type === 'user' ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-white" />}
             </div>
 
             {/* Bubble */}
-            <div className={`flex flex-col max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+            <div className={`flex flex-col max-w-[80%] ${msg.user_type === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`px-5 py-3.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                msg.role === 'user' 
+                msg.user_type === 'user' 
                   ? 'bg-blue-600 text-white rounded-tr-none' 
                   : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-tl-none'
               }`}>
@@ -122,7 +146,7 @@ const ChatArea = () => {
                     className="mb-3 rounded-lg max-h-60 border border-white/10 object-cover" 
                   />
                 )}
-                <p>{msg.content}</p>
+                <p>{msg.text}</p>
               </div>
               <span className="text-[10px] text-slate-500 mt-1 px-1">
                 {new Date(msg.id).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -193,14 +217,19 @@ const ChatArea = () => {
           {/* Send Button */}
           <button 
             onClick={handleSend}
-            disabled={!inputValue.trim() && !selectedImage}
+            disabled={(!inputValue.trim() && !selectedImage) || isUploading} // UPDATE THIS
             className={`p-2 rounded-lg transition-all duration-200 ${
               inputValue.trim() || selectedImage 
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500' 
                 : 'bg-slate-700 text-slate-500 cursor-not-allowed'
             }`}
           >
-            <Send className="w-5 h-5" />
+            {/* Show spinner if uploading, else Send icon */}
+            {isUploading ? (
+               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+               <Send className="w-5 h-5" />
+            )}
           </button>
         </div>
         <p className="text-center text-[10px] text-slate-600 mt-3">
