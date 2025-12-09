@@ -15,8 +15,10 @@ PERSIST_DIR = os.path.join(BASE_DIR, "chroma_langchain_db")
 embedding_model = HuggingFaceEndpointEmbeddings(
     # model="Qwen/Qwen2.5-Coder-32B-Instruct", # might not have inference API so using sentence transformer
     model="sentence-transformers/all-MiniLM-L6-v2",
-    task='feature-extraction'
+    task='feature-extraction',
+    # huggingfacehub_api_token='hf_token_goes_here' # used when running file alone
 )
+
 
 # 3. Persistent Chroma vector store
 vector_store = Chroma(
@@ -26,7 +28,7 @@ vector_store = Chroma(
 )
 
 # --- INGESTION ---
-def ingest_from_document(file_path):
+def ingest_from_document(file_path, chat_id):
     if not os.path.exists(file_path):
         return f"Error: File {file_path} does not exist."
 
@@ -46,6 +48,7 @@ def ingest_from_document(file_path):
         # Set metadata
         for chunk in chunks:
             chunk.metadata["source"] = file_path
+            chunk.metadata["chat_id"] = str(chat_id)
 
         print(f"Adding {len(chunks)} chunks to Vector Store...")
         
@@ -64,15 +67,19 @@ def ingest_from_document(file_path):
 
 
 # --- RETRIEVAL ---
-def retrieve_documents(query, k=3):
+def retrieve_documents(query, chat_id, k=3):
     try:
         # Check if collection is empty to prevent errors
         if vector_store._collection.count() == 0:
+            print("Vector Store is Empty !!!!")
             return []
 
         retriever = vector_store.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": k}
+            search_kwargs={
+                "k" : k,
+                "filter": {"chat_id" : str(chat_id)}       
+            }
         )
 
         # retrieved relevant docs
@@ -93,11 +100,12 @@ def retrieve_documents(query, k=3):
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
     # 1. Ingest a file
-    pdf_path = "example.pdf" 
-    print(ingest_from_document(pdf_path))
+    pdf_path = "resume.pdf" 
+    chat_id = ""
+    print(ingest_from_document(pdf_path, chat_id))
 
     # 2. Retrieve
     query = "How are you?"
     print(f"Querying: {query}")
     print("-" * 30)
-    print(retrieve_documents(query))
+    print(retrieve_documents(query, chat_id))

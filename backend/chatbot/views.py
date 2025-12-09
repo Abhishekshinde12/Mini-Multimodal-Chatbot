@@ -77,7 +77,7 @@ class UploadConversationFile(APIView):
                 file=f
             )
 
-            ingest_from_document(obj.file.path)
+            ingest_from_document(obj.file.path, chat_id)
 
         return Response({"message": "Files uploaded and processing done"}, status=status.HTTP_201_CREATED)
 
@@ -107,7 +107,7 @@ class QueryLLM(APIView):
             )
 
             # 3. RAG Retrieval
-            context = retrieve_documents(query)
+            context = retrieve_documents(query, chat_id)
 
             # 4. Build prompt
             prompt = f"""
